@@ -78,7 +78,7 @@ static const uint8_t msb_MultiplyDeBruijnBitPosition[32] = {
 	0, 9, 1, 10, 13, 21, 2, 29, 11, 14, 16, 18, 22, 25, 3, 30,
 	8, 12, 20, 28, 15, 17, 24, 7, 19, 27, 23, 6, 26, 5, 4, 31
 };
-size_t msb8bit(uint16_t v)
+size_t msb8bit(uint8_t v)
 {
 	v |= v >> 1; // first round down to one less than a power of 2 
 	v |= v >> 2;
@@ -136,8 +136,7 @@ int bitScanReverse(uint64_t bb) {
 // return value is fractional value
 uint32_t ilog2_32(uint32_t v, size_t iteCnt, uint32_t* pIntPart)
 {
-	assert(iteCnt <= 28);
-	if (v == 0) {
+	if (v == 0 || iteCnt > 28) {
 		return (uint32_t)-1;
 	}
 	uint32_t resultBits = 0;
@@ -153,7 +152,9 @@ uint32_t ilog2_32(uint32_t v, size_t iteCnt, uint32_t* pIntPart)
 
 	for (size_t i=0; i<iteCnt; ++i) {
 		while (v >= (1U<<16)) {
-			uint32_t rShifts = msb16bit(v >> 16) + 1;
+//			size_t rShifts = nFracBits - 15;
+			size_t rShifts = msb16bit(v >> 16) + 1;
+//			assert(rShifts == (msb16bit(v >> 16) + 1));
 			uint32_t half = (1 << rShifts) - 1;
 			v = (v + half) >> rShifts;
 			nFracBits -= rShifts;
@@ -171,13 +172,13 @@ uint32_t ilog2_32(uint32_t v, size_t iteCnt, uint32_t* pIntPart)
 
 // find the log2 of 64-bit integer v
 // return value is fixed-point fractional part (Q.iteCnt)
-uint32_t ilog2_64(uint64_t v, size_t iteCnt, uint32_t* pIntPart)
+uint64_t ilog2_64(uint64_t v, size_t iteCnt, uint32_t* pIntPart)
 {
-	assert(iteCnt <= 30);
+//	assert(iteCnt <= 30);
 	if (v == 0) {
-		return (uint32_t)-1;
+		return (uint64_t)-1;
 	}
-	uint32_t resultBits = 0;
+	uint64_t resultBits = 0;
 	size_t trailZeroCount = bitScanForward(v);
 	size_t posMSB = bitScanReverse(v);
 	size_t nFracBits = posMSB;
@@ -188,20 +189,31 @@ uint32_t ilog2_64(uint64_t v, size_t iteCnt, uint32_t* pIntPart)
 	v >>= trailZeroCount;
 	nFracBits -= trailZeroCount;
 
-	for (size_t i=0; i<iteCnt; ++i) {
-		while (v >= (1ULL<<32)) {
-			uint32_t rShifts = msb32bit(v >> 32) + 1;
-			uint32_t half = (1 << rShifts) - 1;
-			v = (v + half) >> rShifts;
+	size_t i;
+	for (i=0; i<iteCnt; ++i) {
+		if (nFracBits > 32) {
+			break;
+		}
+		v *= v;
+		nFracBits <<= 1;
+		int is2BitUp = v >> (nFracBits+1);
+		nFracBits += is2BitUp;
+		resultBits = (resultBits << 1) + is2BitUp;
+	}
+	for (; i<iteCnt; ++i) {
+		{
+			size_t rShifts = nFracBits - 31;
+			assert(rShifts == (msb32bit(v >> 32) + 1u));
+			uint32_t half = (1 << (rShifts-1)) - 1;
+			v += half;
+			v >>= rShifts;
 			nFracBits -= rShifts;
 		}
 		v *= v;
 		nFracBits <<= 1;
-		resultBits <<= 1;
-		if (v >> (nFracBits+1)) {
-			++resultBits;
-			++nFracBits;
-		}
+		int is2BitUp = v >> (nFracBits+1);
+		nFracBits += is2BitUp;
+		resultBits = (resultBits << 1) + is2BitUp;
 	}
 	return resultBits;
 }
@@ -210,7 +222,6 @@ int main(int argc, char* argv[])
 {
 
 	Timer t;
-	t.Start();
 
 	// http://skyblueryu.blog54.fc2.com/blog-entry-27.html
 #define M_LN2      0.69314718055994530941
@@ -218,9 +229,10 @@ int main(int argc, char* argv[])
 	static const uint32_t invBase2LogE = (uint32_t)(M_LN2 * (double)(1U << INV_BASE2_LOGE_SHIFTS) + 0.5);
 	static_assert(invBase2LogE == 0x58b90bfc, "err");
 
-	printf("shifts maxerr(log2) avgerr(log2) maxerr(logE) avgerr(logE)\n");
-	for (size_t nShifts=8; nShifts<=27; ++nShifts) {
-		double invDenomOutFixed = 1.0 / (double)(1 << nShifts);
+	printf("shifts maxerr(log2) avgerr(log2) maxerr(logE) avgerr(logE) elapsed_time\n");
+	for (size_t nShifts=10; nShifts<=40; ++nShifts) {
+		t.Start();
+		double invDenomOutFixed = 1.0 / (double)(1LL << nShifts);
 		double maxDFLog2 = 0.0;
 		double sumDFLog2 = 0.0;
 		double maxDFLogE = 0.0;
@@ -232,15 +244,14 @@ int main(int argc, char* argv[])
 		for (int64_t i=start; i<end; ++i) {
 			// convert input fixed to float
 			double fv = i * invDenomInputFixed;
-			
 #if 1
 			uint32_t intPart;
-			uint32_t frac32 = ilog2_64(i, nShifts, &intPart);
+			uint64_t fracBits = ilog2_64(i, nShifts, &intPart);
 			// adjust integer part of the result with input fixed point shifts
 			// output value's fractional part length is nShifts
-			uint32_t resultLog2Fixed = ((intPart - inputFixedShift) << nShifts) | frac32;
+			uint64_t resultLog2Fixed = (((uint64_t)intPart - inputFixedShift) << nShifts) | fracBits;
 			// change of base
-			uint32_t resultLogEFixed = ((uint64_t)resultLog2Fixed * invBase2LogE) >> INV_BASE2_LOGE_SHIFTS;
+			uint64_t resultLogEFixed = (resultLog2Fixed * invBase2LogE) >> INV_BASE2_LOGE_SHIFTS;
 			// convert from fixed to float
 			double resultLog2 = resultLog2Fixed * invDenomOutFixed;
 			double resultLogE = resultLogEFixed * invDenomOutFixed;
@@ -261,17 +272,17 @@ int main(int argc, char* argv[])
 			sumDFLogE += dfLogE;
 			maxDFLog2 = std::max(maxDFLog2, dfLog2);
 			sumDFLog2 += dfLog2;
-//			printf("%f %f %f %f\n", v, f1, f2, df);
 #endif
+//			printf("%f %f %f %f\n", v, f1, f2, df);
 		}
 		int64_t count = end - start;
+		double elapsed = t.Elapsed() / (double)t.GetFrequency();
 		printf(
-			"%d %.9f %.9f %.9f %.9f\n",
-			nShifts, maxDFLog2, sumDFLog2/(count-1), maxDFLogE, sumDFLogE/(count-1)
+			"%d %.11f %.11f %.11f %.11f %f\n",
+			nShifts, maxDFLog2, sumDFLog2/(count-1), maxDFLogE, sumDFLogE/(count-1),
+			elapsed
 		);
 	}
-
-	printf("%f\n", t.Elapsed() / (double)t.GetFrequency());
 
 	return 0;
 }
