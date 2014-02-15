@@ -132,7 +132,6 @@ int bitScanReverse(uint64_t bb) {
    return index64[(bb * debruijn64) >> 58];
 }
 
-
 // find the log2 of 32-bit integer v
 // return value is fractional value
 uint32_t ilog2_32(uint32_t v, size_t iteCnt, uint32_t* pIntPart)
@@ -171,8 +170,7 @@ uint32_t ilog2_32(uint32_t v, size_t iteCnt, uint32_t* pIntPart)
 }
 
 // find the log2 of 64-bit integer v
-// return value is fixed-point value (Q.iteCnt)
-// algorithm based on http://en.wikipedia.org/wiki/Binary_logarithm#Real_number
+// return value is fixed-point fractional part (Q.iteCnt)
 uint32_t ilog2_64(uint64_t v, size_t iteCnt, uint32_t* pIntPart)
 {
 	assert(iteCnt <= 30);
@@ -221,39 +219,46 @@ int main(int argc, char* argv[])
 	static_assert(invBase2LogE == 0x58b90bfc, "err");
 
 	printf("shifts maxerr(log2) avgerr(log2) maxerr(logE) avgerr(logE)\n");
-	for (size_t nShifts=8; nShifts<=20; ++nShifts) {
-		double denom = (double)(1 << nShifts);
+	for (size_t nShifts=8; nShifts<=27; ++nShifts) {
+		double invDenomOutFixed = 1.0 / (double)(1 << nShifts);
 		double maxDFLog2 = 0.0;
 		double sumDFLog2 = 0.0;
 		double maxDFLogE = 0.0;
 		double sumDFLogE = 0.0;
-		size_t fixedShift = 8;
-		int64_t end = 1ULL << 36;
-		int64_t start = std::max(1ll, end - (1 << 14));
+		size_t inputFixedShift = 8;	// input fixed point value's fractional part length
+		double invDenomInputFixed = 1.0 / (1LL << inputFixedShift);
+		int64_t end = 1ULL << 26;
+		int64_t start = std::max((1LL << inputFixedShift), end - (1 << 16)); // must start from 1.0
 		for (int64_t i=start; i<end; ++i) {
 			uint32_t intPart;
 			uint32_t frac32 = ilog2_64(i, nShifts, &intPart);
-			uint32_t resultLog2Fixed = ((intPart - fixedShift) << nShifts) | frac32;
+			// adjust integer part of the result with input fixed point shifts
+			// output value's fractional part length is nShifts
+			uint32_t resultLog2Fixed = ((intPart - inputFixedShift) << nShifts) | frac32;
+			// change of base
 			uint32_t resultLogEFixed = ((uint64_t)resultLog2Fixed * invBase2LogE) >> INV_BASE2_LOGE_SHIFTS;
+			// convert from fixed to float
+			double resultLog2 = resultLog2Fixed * invDenomOutFixed;
+			double resultLogE = resultLogEFixed * invDenomOutFixed;
 
-			double resultLog2 = resultLog2Fixed / denom;
-			double resultLogE = resultLogEFixed / denom;
-
-			double v = (double)i / (1 << fixedShift);
+			// convert input fixed to float
+			double v = i * invDenomInputFixed;
 			double ansLogE = log(v);
+			// change of base
 			double ansLog2 = ansLogE / log(2.0);
+
+			// diff
 			double dfLogE = abs(ansLogE - resultLogE);
 			double dfLog2 = abs(ansLog2 - resultLog2);
 			maxDFLogE = std::max(maxDFLogE, dfLogE);
 			sumDFLogE += dfLogE;
-
 			maxDFLog2 = std::max(maxDFLog2, dfLog2);
 			sumDFLog2 += dfLog2;
 //			printf("%f %f %f %f\n", v, f1, f2, df);
 		}
 		int64_t count = end - start;
 		printf(
-			"%d %f %f %f %f\n",
+			"%d %.9f %.9f %.9f %.9f\n",
 			nShifts, maxDFLog2, sumDFLog2/(count-1), maxDFLogE, sumDFLogE/(count-1)
 		);
 	}
