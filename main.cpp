@@ -42,7 +42,7 @@ http://en.wikipedia.org/wiki/Binary_logarithm#Real_number
 
 */
 
-// #include "fastonebigheader.h"
+#include "fastonebigheader.h"
 
 const uint8_t lsb_64_table[64] =
 {
@@ -230,6 +230,10 @@ int main(int argc, char* argv[])
 		int64_t end = 1ULL << 26;
 		int64_t start = std::max((1LL << inputFixedShift), end - (1 << 16)); // must start from 1.0
 		for (int64_t i=start; i<end; ++i) {
+			// convert input fixed to float
+			double fv = i * invDenomInputFixed;
+			
+#if 1
 			uint32_t intPart;
 			uint32_t frac32 = ilog2_64(i, nShifts, &intPart);
 			// adjust integer part of the result with input fixed point shifts
@@ -240,10 +244,13 @@ int main(int argc, char* argv[])
 			// convert from fixed to float
 			double resultLog2 = resultLog2Fixed * invDenomOutFixed;
 			double resultLogE = resultLogEFixed * invDenomOutFixed;
+#else
+			double resultLog2 = fastlog2(fv);
+			double resultLogE = fastlog(fv);
+#endif
 
-			// convert input fixed to float
-			double v = i * invDenomInputFixed;
-			double ansLogE = log(v);
+#if 1
+			double ansLogE = log(fv);
 			// change of base
 			double ansLog2 = ansLogE / log(2.0);
 
@@ -255,6 +262,7 @@ int main(int argc, char* argv[])
 			maxDFLog2 = std::max(maxDFLog2, dfLog2);
 			sumDFLog2 += dfLog2;
 //			printf("%f %f %f %f\n", v, f1, f2, df);
+#endif
 		}
 		int64_t count = end - start;
 		printf(
