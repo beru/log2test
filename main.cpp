@@ -172,7 +172,11 @@ uint32_t ilog2_32(uint32_t v, size_t iteCnt, uint32_t* pIntPart)
 
 // find the log2 of 64-bit integer v
 // return value is fixed-point fractional part (Q.iteCnt)
-uint64_t ilog2_64(uint64_t v, size_t iteCnt, uint32_t* pIntPart)
+uint64_t ilog2_64(
+	uint64_t	v,				// input integer value
+	size_t		iteCnt,			// iteration count, output fractional part bit length
+	uint32_t*	pIntPart		// pointer to store output integer part value
+	)
 {
 //	assert(iteCnt <= 30);
 	if (v == 0) {
@@ -181,13 +185,12 @@ uint64_t ilog2_64(uint64_t v, size_t iteCnt, uint32_t* pIntPart)
 	uint64_t resultBits = 0;
 	size_t trailZeroCount = bitScanForward(v);
 	size_t posMSB = bitScanReverse(v);
-	size_t nFracBits = posMSB;
 	*pIntPart = posMSB;
 	if (posMSB == trailZeroCount) {
 		return 0;
 	}
 	v >>= trailZeroCount;
-	nFracBits -= trailZeroCount;
+	size_t nFracBits = posMSB - trailZeroCount;
 
 	size_t i;
 	for (i=0; i<iteCnt; ++i) {
@@ -196,24 +199,22 @@ uint64_t ilog2_64(uint64_t v, size_t iteCnt, uint32_t* pIntPart)
 		}
 		v *= v;
 		nFracBits <<= 1;
-		int is2BitUp = v >> (nFracBits+1);
+		int is2BitUp = v >> (nFracBits + 1);
 		nFracBits += is2BitUp;
 		resultBits = (resultBits << 1) + is2BitUp;
 	}
 	for (; i<iteCnt; ++i) {
-		{
-			size_t rShifts = nFracBits - 31;
-			assert(rShifts == (msb32bit(v >> 32) + 1u));
-			uint32_t half = (1 << (rShifts-1)) - 1;
-			v += half;
-			v >>= rShifts;
-			nFracBits -= rShifts;
-		}
+		size_t rShifts = nFracBits - 31u;
+		assert(rShifts == (msb32bit(v >> 32) + 1u));
+		uint32_t half = (1 << (rShifts - 1u)) - 1u;
+		v += half;
+		v >>= rShifts;
+		nFracBits = (nFracBits << 1) - (rShifts << 1);
+		resultBits <<= 1;
 		v *= v;
-		nFracBits <<= 1;
-		int is2BitUp = v >> (nFracBits+1);
+		size_t is2BitUp = v >> (nFracBits + 1u);
 		nFracBits += is2BitUp;
-		resultBits = (resultBits << 1) + is2BitUp;
+		resultBits += is2BitUp;
 	}
 	return resultBits;
 }
@@ -240,7 +241,7 @@ int main(int argc, char* argv[])
 		size_t inputFixedShift = 8;	// input fixed point value's fractional part length
 		double invDenomInputFixed = 1.0 / (1LL << inputFixedShift);
 		int64_t end = 1ULL << 26;
-		int64_t start = std::max((1LL << inputFixedShift), end - (1 << 16)); // must start from 1.0
+		int64_t start = std::max((1LL << inputFixedShift), end - (1 << 18)); // must start from 1.0
 		for (int64_t i=start; i<end; ++i) {
 			// convert input fixed to float
 			double fv = i * invDenomInputFixed;
