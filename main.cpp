@@ -33,11 +33,12 @@ THE SOFTWARE.
 
 /*
 
+bitscan
 https://chessprogramming.wikispaces.com/BitScan
 http://graphics.stanford.edu/~seander/bithacks.html#ZerosOnRightMultLookup
 http://marupeke296.com/TIPS_No17_Bit.html
 
-algorithm based on
+binary logarithm algorithm based on
 http://en.wikipedia.org/wiki/Binary_logarithm#Real_number
 
 */
@@ -194,12 +195,12 @@ uint64_t ilog2_64(
 
 	size_t i;
 	for (i=0; i<iteCnt; ++i) {
-		if (nFracBits > 32) {
+		if (nFracBits >= 32) {
 			break;
 		}
 		v *= v;
 		nFracBits <<= 1;
-		int is2BitUp = v >> (nFracBits + 1);
+		size_t is2BitUp = (size_t)(v >> (nFracBits + 1));
 		nFracBits += is2BitUp;
 		resultBits = (resultBits << 1) + is2BitUp;
 	}
@@ -212,15 +213,76 @@ uint64_t ilog2_64(
 		nFracBits = (nFracBits << 1) - (rShifts << 1);
 		resultBits <<= 1;
 		v *= v;
-		size_t is2BitUp = v >> (nFracBits + 1u);
+		size_t is2BitUp = (size_t)(v >> (nFracBits + 1u));
 		nFracBits += is2BitUp;
 		resultBits += is2BitUp;
 	}
 	return resultBits;
 }
 
+// find the log2 of 64-bit fixed-point v
+// return value is fixed-point log2 result (Q.iteCnt format)
+int64_t fixed_log2(
+	uint64_t	v,				// input fixed-point value
+	size_t		fixedShift,		// input fraction bits count
+	size_t		iteCnt			// iteration count is equal to output fraction bits count
+	)
+{
+	uint32_t intPart;
+	uint64_t fracBits = ilog2_64(v, iteCnt, &intPart);
+	int64_t resultLog2Fixed = (int32_t)intPart - (int32_t)fixedShift;
+	resultLog2Fixed <<= iteCnt;
+	resultLog2Fixed += fracBits;
+	return resultLog2Fixed;
+}
+
+// http://forum.osdev.org/viewtopic.php?f=13&t=26848
+int64_t multiply64x32rshift(int64_t a, int32_t b, size_t rShifts)
+{
+	int sign = ((a >> 32) ^ b) >> 31;
+	uint64_t ua = abs(a);
+	uint32_t ub = abs(b);
+	uint64_t ah = ua >> 32;
+	uint64_t al = ua & 0xFFFFFFFF;
+	uint64_t hl = ah * ub;
+	uint64_t ll = al * ub;
+	uint64_t result = (hl << (32 - rShifts)) + (ll >> rShifts);
+	if (sign == 0) {
+		return (int64_t)result;
+	}else {
+		return (int64_t)~result + 1;
+	}
+}
+
+int16_t multiply16x8rshift(int16_t a, int8_t b, size_t rShifts)
+{
+	int sign = ((a >> 8) ^ b) >> 7;
+	uint16_t ua = abs(a);
+	uint8_t ub = abs(b);
+	uint8_t ah = ua >> 8;
+	uint8_t al = ua & 0xFF;
+	uint16_t hl = ah * ub;
+	uint16_t ll = al * ub;
+	uint16_t result = (hl << (8 - rShifts)) + (ll >> rShifts);
+	if (sign == 0) {
+		return result;
+	}else {
+		return (int16_t)~result + 1;
+	}
+}
+
 int main(int argc, char* argv[])
 {
+#if 0
+	int64_t r = multiply16x8rshift(-12345, 123, 8);
+	r = multiply64x32rshift(-1LL<<40, 1<<30, 20);
+	uint32_t ip;
+	uint64_t r = ilog2_64(17, 10, &ip);
+
+	size_t iteCnt = 24;
+	int64_t ret = fixed_log2(33, 15, iteCnt);
+	double fret = ret / (double)(1LL << iteCnt);
+#endif
 
 	Timer t;
 
@@ -238,21 +300,17 @@ int main(int argc, char* argv[])
 		double sumDFLog2 = 0.0;
 		double maxDFLogE = 0.0;
 		double sumDFLogE = 0.0;
-		size_t inputFixedShift = 8;	// input fixed point value's fractional part length
+		size_t inputFixedShift = 16;	// input fixed point value's fractional part length
 		double invDenomInputFixed = 1.0 / (1LL << inputFixedShift);
-		int64_t end = 1ULL << 26;
-		int64_t start = std::max((1LL << inputFixedShift), end - (1 << 18)); // must start from 1.0
+		int64_t end = 1ULL << 22;
+		int64_t start = 1ULL << 0;
 		for (int64_t i=start; i<end; ++i) {
 			// convert input fixed to float
 			double fv = i * invDenomInputFixed;
 #if 1
-			uint32_t intPart;
-			uint64_t fracBits = ilog2_64(i, nShifts, &intPart);
-			// adjust integer part of the result with input fixed point shifts
-			// output value's fractional part length is nShifts
-			uint64_t resultLog2Fixed = (((uint64_t)intPart - inputFixedShift) << nShifts) | fracBits;
+			int64_t resultLog2Fixed = fixed_log2(i, inputFixedShift, nShifts);
 			// change of base
-			uint64_t resultLogEFixed = (resultLog2Fixed * invBase2LogE) >> INV_BASE2_LOGE_SHIFTS;
+			int64_t resultLogEFixed = multiply64x32rshift(resultLog2Fixed, invBase2LogE, INV_BASE2_LOGE_SHIFTS);
 			// convert from fixed to float
 			double resultLog2 = resultLog2Fixed * invDenomOutFixed;
 			double resultLogE = resultLogEFixed * invDenomOutFixed;
