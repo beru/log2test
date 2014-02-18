@@ -195,20 +195,19 @@ uint64_t ilog2_64(
 
 	size_t i;
 	for (i=0; i<iteCnt; ++i) {
-		if (nFracBits >= 32) {
+		if (nFracBits >= 32u) {
 			break;
 		}
-		v *= v;
+		v = v * (uint32_t)v;
 		nFracBits <<= 1;
-		size_t is2BitUp = (size_t)(v >> (nFracBits + 1));
+		size_t is2BitUp = (size_t)(v >> (nFracBits + 1u));
 		nFracBits += is2BitUp;
 		resultBits = (resultBits << 1) + is2BitUp;
 	}
 	for (; i<iteCnt; ++i) {
 		size_t rShifts = nFracBits - 31u;
 		assert(rShifts == (msb32bit(v >> 32) + 1u));
-		uint32_t half = (1 << (rShifts - 1u)) - 1u;
-		v += half;
+		v = v + (uint32_t)(1u << (rShifts - 1u));
 		v >>= rShifts;
 		nFracBits = (nFracBits << 1) - (rShifts << 1);
 		resultBits <<= 1;
@@ -239,9 +238,9 @@ int64_t fixed_log2(
 // http://forum.osdev.org/viewtopic.php?f=13&t=26848
 int64_t multiply64x32rshift(int64_t a, int32_t b, size_t rShifts)
 {
-	int sign = ((a >> 32) ^ b) >> 31;
-	uint64_t ua = abs(a);
-	uint32_t ub = abs(b);
+	int sign = ((int32_t)(a >> 32) ^ b) >> 31;
+	uint64_t ua = std::abs(a);
+	uint32_t ub = std::abs(b);
 	uint64_t ah = ua >> 32;
 	uint64_t al = ua & 0xFFFFFFFF;
 	uint64_t hl = ah * ub;
@@ -257,8 +256,8 @@ int64_t multiply64x32rshift(int64_t a, int32_t b, size_t rShifts)
 int16_t multiply16x8rshift(int16_t a, int8_t b, size_t rShifts)
 {
 	int sign = ((a >> 8) ^ b) >> 7;
-	uint16_t ua = abs(a);
-	uint8_t ub = abs(b);
+	uint16_t ua = std::abs(a);
+	uint8_t ub = std::abs(b);
 	uint8_t ah = ua >> 8;
 	uint8_t al = ua & 0xFF;
 	uint16_t hl = ah * ub;
@@ -325,8 +324,8 @@ int main(int argc, char* argv[])
 			double ansLog2 = ansLogE / log(2.0);
 
 			// diff
-			double dfLogE = abs(ansLogE - resultLogE);
-			double dfLog2 = abs(ansLog2 - resultLog2);
+			double dfLogE = std::abs(ansLogE - resultLogE);
+			double dfLog2 = std::abs(ansLog2 - resultLog2);
 			maxDFLogE = std::max(maxDFLogE, dfLogE);
 			sumDFLogE += dfLogE;
 			maxDFLog2 = std::max(maxDFLog2, dfLog2);
